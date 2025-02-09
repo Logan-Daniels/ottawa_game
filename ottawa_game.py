@@ -9,20 +9,88 @@ import pandas as pd
 from functions import *
 
 st.set_page_config(
-    page_title = "LITs' Ottawa Game",
-    page_icon = os.path.join(os.getcwd(), "images", "kinneret_logo.png"),
-    layout = "wide",
+    page_title="LITs' Ottawa Game",
+    page_icon=os.path.join(os.getcwd(), "images", "kinneret_logo.png"),
+    layout="wide",
 )
 
+# Updated CSS to constrain scrolling and reduce spacing
 st.markdown(
     """
     <style>
+        /* Fix viewport height and prevent page scrolling */
+        section[data-testid="stSidebar"] {
+            display: none;
+        }
+        
+        .main .block-container {
+            padding-top: 1rem !important;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            padding-bottom: 0 !important;
+            max-width: 100%;
+            width: 100%;
+            overflow-x: hidden;
+            height: 100vh;
+        }
+        
+        /* Remove extra spacing around title */
+        h1 {
+            margin: 30 !important;
+            padding: 30 !important;
+            /*line-height: 1.2 !important;*/
+        }
+        
+        /* Center align column contents */
         div[data-testid="column"] {
             text-align: center;
+            width: auto !important;
+            min-width: 0;
+            padding: 0 !important;
+        }
+        
+        /* Adjust horizontal block layout */
+        div[data-testid="stHorizontalBlock"] {
+            width: 100%;
+            margin: 0 auto;
+            gap: 0.5rem;
+            padding: 0 !important;
+        }
+        
+        /* Make buttons more compact */
+        div[data-testid="stHorizontalBlock"] button {
+            width: 100% !important;
+            min-width: 0 !important;
+            padding: 0.5rem !important;
+            margin: 0 !important;
+        }
+        
+        /* Remove extra padding around elements */
+        .element-container {
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        
+        /* Ensure map container doesn't overflow */
+        .stFoliumMap {
+            width: 100% !important;
+            max-width: 400px !important;
+            margin: 0 auto !important;
+        }
+        
+        /* Remove padding around map */
+        .stFoliumMap > div {
+            margin: 0.5rem auto !important;
+        }
+        
+        @media (max-width: 640px) {
+            div[data-testid="stHorizontalBlock"] button {
+                font-size: 1.2rem !important;
+            }
         }
     </style>
     """,
-    unsafe_allow_html = True,
+    unsafe_allow_html=True,
 )
 
 # Read points and set initial CRS
@@ -76,25 +144,31 @@ for i in range(len(points)):
 
 
 # Site Design:
-st.markdown("<h1 style='text-align: center; color: blue;'>LIT's Ottawa Game</h1>", unsafe_allow_html = True)
+st.markdown("<h1 style='text-align: center; color: blue;'>LIT's Ottawa Game</h1>", unsafe_allow_html=True)
 
-st_folium(
-    m,
-    height = 400,
-    width = 400,
-)
+# Place map in a container to control its width
+map_container = st.container()
+with map_container:
+    st_folium(
+        m,
+        height=400,
+        width=None,  # Let the container control the width
+    )
 
-col1, col2 = st.columns(2)
-with col2:
-    if st.button(":house:"):
-        st.session_state.getting_location = False
-        st.session_state.lat = centre.y
-        st.session_state.lon = centre.x
-        st.rerun()
-
-with col1:
-    if st.button("✛"):
-        st.session_state.getting_location = True
+# Create a container for the buttons with minimal spacing
+button_container = st.container()
+with button_container:
+    col1, col2 = st.columns([1, 1])  # Equal width columns
+    with col1:
+        if st.button("✛"):
+            st.session_state.getting_location = True
+            
+    with col2:
+        if st.button("🏠"):
+            st.session_state.getting_location = False
+            st.session_state.lat = centre.y
+            st.session_state.lon = centre.x
+            st.rerun()
 
 if "getting_location" in st.session_state and st.session_state.getting_location:
     try:
@@ -104,5 +178,5 @@ if "getting_location" in st.session_state and st.session_state.getting_location:
     if loc:  # Ensure location data is valid
         st.session_state.lat = loc["latitude"]
         st.session_state.lon = loc["longitude"]
-        st.session_state.getting_location = False # Reset flag
+        st.session_state.getting_location = False  # Reset flag
         st.rerun()
