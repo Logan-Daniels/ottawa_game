@@ -3,3 +3,5 @@ geopandas==1.0.1
 numpy==1.26.0
 Shapely==2.0.7
 streamlit==1.36.0
+streamlit_folium
+streamlit_js_eval
