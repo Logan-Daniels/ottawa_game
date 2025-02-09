@@ -150,7 +150,7 @@ for i in range(len(points)):
             icon = "trophy",
             prefix = "fa"
         ),
-        popup = f'<p style="text-align: center;"><b>{points.iloc[i]["name"]}</b></p>'
+        popup = f'<p style="text-align: center; color: {team_colours[i]};"><b>{points.iloc[i]["name"]}</b></p>'
     ).add_to(m)
 
 # Site Design:
