@@ -9,8 +9,8 @@ import pandas as pd
 from functions import *
 
 st.set_page_config(
-    page_title="LITs' Ottawa Game",
-    page_icon=os.path.join(os.getcwd(), "images", "kinneret_logo.png"),
+    page_title = "LITs' Ottawa Game",
+    page_icon = os.path.join(os.getcwd(), "images", "kinneret_logo.png"),
     layout="wide",
 )
 
@@ -90,7 +90,7 @@ st.markdown(
         }
     </style>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html = True,
 )
 
 # Read points and set initial CRS
@@ -110,12 +110,23 @@ if "lat" not in st.session_state:
     st.session_state.lat = centre.y
 if "lon" not in st.session_state:
     st.session_state.lon = centre.x
+if "zoom" not in st.session_state:
+    st.session_state.zoom = 13
 
 # Create map
 m = folium.Map(
     min_zoom = 13,
-    location = [st.session_state.lat, st.session_state.lon]
+    location = [st.session_state.lat, st.session_state.lon],
+    zoom_start = st.session_state.zoom,
 )
+
+folium.TileLayer(
+        tiles = 'https://api.maptiler.com/maps/voyager/{z}/{x}/{y}.png?key=' + st.secrets["map_tiler"],
+        attr = '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a>',
+        api_key = st.secrets["map_tiler"],
+        min_zoom = 13,
+        max_zoom = 21,
+    ).add_to(m)
 
 team_colours = ("red", "blue", "green")
 # Add regions to map
@@ -124,7 +135,7 @@ for region in range(len(df_region_points.index.unique())):
         locations = df_region_points.loc[region],
         color = team_colours[region],
         fill = True,
-        fill_opacity = 0.3,
+        fill_opacity = 0.2,
         weight = 1
     ).add_to(m)
 
@@ -142,17 +153,16 @@ for i in range(len(points)):
         popup = f'<p style="text-align: center;"><b>{points.iloc[i]["name"]}</b></p>'
     ).add_to(m)
 
-
 # Site Design:
 st.markdown("<h1 style='text-align: center; color: blue;'>LIT's Ottawa Game</h1>", unsafe_allow_html=True)
 
 # Place map in a container to control its width
 map_container = st.container()
 with map_container:
-    st_folium(
+    output = st_folium(
         m,
-        height=400,
-        width=None,  # Let the container control the width
+        height = 400,
+        width = None,
     )
 
 # Create a container for the buttons with minimal spacing
@@ -168,6 +178,7 @@ with button_container:
             st.session_state.getting_location = False
             st.session_state.lat = centre.y
             st.session_state.lon = centre.x
+            st.session_state.zoom = 13
             st.rerun()
 
 if "getting_location" in st.session_state and st.session_state.getting_location:
@@ -179,4 +190,5 @@ if "getting_location" in st.session_state and st.session_state.getting_location:
         st.session_state.lat = loc["latitude"]
         st.session_state.lon = loc["longitude"]
         st.session_state.getting_location = False  # Reset flag
+        st.session_state.zoom = output["zoom"]
         st.rerun()
