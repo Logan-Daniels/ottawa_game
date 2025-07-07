@@ -1,13 +1,45 @@
 import streamlit as st
-import geopandas as gpd
-from shapely.geometry import Point, LineString
 import folium
 from streamlit_folium import st_folium
 from streamlit_js_eval import get_geolocation
 import os
-import pandas as pd
 import pymongo
-from functions import *
+import geopandas as gpd
+from shapely.geometry import Point
+
+def rgb_to_hex_fstring(r, g, b):
+    """Converts RGB values (0-255) to a hexadecimal color code string."""
+    return f'#{r:02X}{g:02X}{b:02X}'
+
+# Function to create popup HTML with team scores
+def create_popup_html(zone_number, orange_data, pink_data):
+    orange_points = orange_data.get(f"zone_{zone_number}", 0) if orange_data else 0
+    pink_points = pink_data.get(f"zone_{zone_number}", 0) if pink_data else 0
+    
+    html = f"""
+    <div style="font-family: Arial, sans-serif; min-width: 150px;">
+        <h4 style="margin: 0; text-align: center;">Zone {zone_number}</h4>
+        <div style="margin: 10px 0;">
+            <div style="color: #FF9600; font-weight: bold;">🟠 Orange: {orange_points}</div>
+            <div style="color: #FF0096; font-weight: bold;">🩷 Pink: {pink_points}</div>
+        </div>
+    </div>
+    """
+    return html
+
+# Function to get the nearest zone to user location
+def get_nearest_zone(user_lat, user_lon, gdf):
+    if user_lat is None or user_lon is None:
+        return None
+    
+    user_point = Point(user_lon, user_lat)
+    user_gdf = gpd.GeoDataFrame([1], geometry=[user_point], crs = "EPSG:4326")
+    
+    # Find nearest zone
+    nearest = gpd.sjoin_nearest(user_gdf, gdf, how = "left")
+    closest_zone_idx = nearest.index_right.iloc[0]
+    
+    return closest_zone_idx + 1  # Return 1-indexed zone number
 
 st.set_page_config(
     page_title = "LITs' Ottawa Game",
@@ -173,7 +205,7 @@ if st.session_state.team == None or st.session_state.game_id == None:
                 team_documents = []
                 
                 for team_name in teams:
-                    team_data = {"_id": team_name, "balance": 100}  # Start with 100 points
+                    team_data = {"_id": team_name, "balance": 0}
                     # Add zones 1-9
                     for zone_num in range(1, 10):
                         team_data[f"zone_{zone_num}"] = 0
@@ -184,8 +216,6 @@ if st.session_state.team == None or st.session_state.game_id == None:
                 # Insert all team documents
                 collection.insert_many(team_documents)
             
-            st.session_state.lat = centre["lat"]
-            st.session_state.lon = centre["lon"]
             st.session_state.zoom = 14
 
             st.rerun()
@@ -221,14 +251,17 @@ else:
         zoom_start = 14,
     )
 
-    folium.Marker(
-        location = [st.session_state.lat,st.session_state.lon] if st.session_state.lat and st.session_state.lon else [centre["lat"], centre["lon"]],
-        icon = folium.DivIcon(
-            html = f'<i class="fa fa-location-crosshairs" style="color: #0050ff; font-size: 20px;"></i>',
-            icon_size = (25, 25),
-            icon_anchor = (12.5, 12.5)
-        )
-    ).add_to(m)
+    if st.session_state.lat != None and st.session_state.lon != None:
+        folium.Marker(
+            location = [st.session_state.lat, st.session_state.lon] if st.session_state.lat and st.session_state.lon else [centre["lat"], centre["lon"]],
+            icon = folium.DivIcon(
+                html = f'<i class="fa fa-location-crosshairs" style="color: #0050ff; font-size: 20px;"></i>',
+                icon_size = (25, 25),
+                icon_anchor = (12.5, 12.5)
+            )
+        ).add_to(m)
+    else:
+        st.session_state.getting_location = True
 
     # Function to determine zone color based on team points
     def get_zone_color(zone_number, orange_data, pink_data):
@@ -244,36 +277,6 @@ else:
                 return rgb_to_hex_fstring(255, 75, 75)  # Tie
         else:
             return rgb_to_hex_fstring(255, 75, 75)  # Default color if no data
-
-    # Function to create popup HTML with team scores
-    def create_popup_html(zone_number, orange_data, pink_data):
-        orange_points = orange_data.get(f"zone_{zone_number}", 0) if orange_data else 0
-        pink_points = pink_data.get(f"zone_{zone_number}", 0) if pink_data else 0
-        
-        html = f"""
-        <div style="font-family: Arial, sans-serif; min-width: 150px;">
-            <h4 style="margin: 0; text-align: center;">Zone {zone_number}</h4>
-            <div style="margin: 10px 0;">
-                <div style="color: #FF9600; font-weight: bold;">🟠 Orange: {orange_points}</div>
-                <div style="color: #FF0096; font-weight: bold;">🩷 Pink: {pink_points}</div>
-            </div>
-        </div>
-        """
-        return html
-
-    # Function to get the nearest zone to user location
-    def get_nearest_zone(user_lat, user_lon, gdf):
-        if user_lat is None or user_lon is None:
-            return None
-        
-        user_point = Point(user_lon, user_lat)
-        user_gdf = gpd.GeoDataFrame([1], geometry=[user_point], crs="EPSG:4326")
-        
-        # Find nearest zone
-        nearest = gpd.sjoin_nearest(user_gdf, gdf, how="left")
-        closest_zone_idx = nearest.index_right.iloc[0]
-        
-        return closest_zone_idx + 1  # Return 1-indexed zone number
 
     # Get the nearest zone for highlighting
     nearest_zone = get_nearest_zone(st.session_state.lat, st.session_state.lon, gdf)
@@ -300,7 +303,7 @@ else:
             fill = True,
             fill_opacity = fill_opacity,
             weight = border_weight,
-            popup = folium.Popup(popup_html, max_width=200)
+            popup = folium.Popup(popup_html, max_width = 200)
         ).add_to(m)
 
     # Get completed challenges for current team
@@ -318,7 +321,7 @@ else:
                     icon_anchor = (12, 8)
                 ),
                 popup = folium.Popup(
-                    f"""<b style="text-align: center;"><h4>{challenge['location']}</h4>{challenge['title']}</b><br><i>Points: {challenge['points']}</i><br>{challenge['challenge']}<br><a href='{challenge['link']}' target='_blank'>View on Google Maps</a>""",
+                    f"""<b style="text-align: center;"><h3>{challenge['location']}</h3>{challenge['title']}</b><br><i>Points: {challenge['points']}</i><br>{challenge['challenge']}<br><a href='{challenge['link']}' target='_blank'>View on Google Maps</a>""",
                     max_width = 300,
                 ),
                 tooltip = challenge['title'],
@@ -365,21 +368,39 @@ else:
             with col2:
                 if st.button(f"Deposit to Zone {nearest_zone}"):
                     if deposit_amount > 0:
-                        try:
-                            # Update database
-                            collection.update_one(
-                                {"_id": st.session_state.team},
-                                {
-                                    "$inc": {
-                                        "balance": -deposit_amount,
-                                        f"zone_{nearest_zone}": deposit_amount
-                                    }
-                                }
-                            )
-                            st.success(f"Successfully deposited {deposit_amount} points to Zone {nearest_zone}!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error depositing points: {e}")
+                        # Show deposit confirmation dialog
+                        @st.dialog("Confirm Point Deposit")
+                        def confirm_deposit():
+                            st.write(f"**Zone:** {nearest_zone}")
+                            st.write(f"**Points to deposit:** {deposit_amount}")
+                            st.write(f"**Your current balance:** {current_team_data.get('balance', 0)} points")
+                            st.write(f"**Balance after deposit:** {current_team_data.get('balance', 0) - deposit_amount} points")
+                            st.write("---")
+                            st.write("Are you sure you want to deposit these points?")
+                            
+                            col_cancel, col_confirm = st.columns(2)
+                            with col_cancel:
+                                if st.button("Cancel", type="secondary"):
+                                    st.rerun()
+                            with col_confirm:
+                                if st.button("Confirm Deposit", type="primary"):
+                                    try:
+                                        # Update database
+                                        collection.update_one(
+                                            {"_id": st.session_state.team},
+                                            {
+                                                "$inc": {
+                                                    "balance": -deposit_amount,
+                                                    f"zone_{nearest_zone}": deposit_amount
+                                                }
+                                            }
+                                        )
+                                        st.success(f"Successfully deposited {deposit_amount} points to Zone {nearest_zone}!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error depositing points: {e}")
+                        
+                        confirm_deposit()
                     else:
                         st.warning("Please enter a deposit amount greater than 0.")
         else:
@@ -406,20 +427,42 @@ else:
             if st.session_state.last_clicked_challenge is not None:
                 challenge = st.session_state.last_clicked_challenge
                 if st.button(f"Complete: {challenge['title']} ({challenge['points']} pts)"):
-                    try:
-                        # Update database - add points to balance and mark challenge as completed
-                        collection.update_one(
-                            {"_id": st.session_state.team},
-                            {
-                                "$inc": {"balance": challenge['points']},
-                                "$addToSet": {"completed_challenges": challenge['title']}
-                            }
-                        )
-                        st.success(f"Challenge '{challenge['title']}' completed! +{challenge['points']} points!")
-                        st.session_state.last_clicked_challenge = None
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error completing challenge: {e}")
+                    # Show challenge completion confirmation dialog
+                    @st.dialog("Confirm Challenge Completion")
+                    def confirm_challenge():
+                        st.write(f"**Challenge:** {challenge['title']}")
+                        st.write(f"**Points:** {challenge['points']}")
+                        st.write(f"**Location:** {challenge['location']}")
+                        st.write(f"**Your current balance:** {current_team_data.get('balance', 0)} points")
+                        st.write(f"**Balance after completion:** {current_team_data.get('balance', 0) + challenge['points']} points")
+                        st.write("---")
+                        st.write("**Challenge Description:**")
+                        st.write(challenge['challenge'])
+                        st.write("---")
+                        st.write("Are you sure you have completed this challenge?")
+                        
+                        col_cancel, col_confirm = st.columns(2)
+                        with col_cancel:
+                            if st.button("Cancel", type="secondary"):
+                                st.rerun()
+                        with col_confirm:
+                            if st.button("Confirm Completion", type="primary"):
+                                try:
+                                    # Update database - add points to balance and mark challenge as completed
+                                    collection.update_one(
+                                        {"_id": st.session_state.team},
+                                        {
+                                            "$inc": {"balance": challenge['points']},
+                                            "$addToSet": {"completed_challenges": challenge['title']}
+                                        }
+                                    )
+                                    st.success(f"Challenge '{challenge['title']}' completed! +{challenge['points']} points!")
+                                    st.session_state.last_clicked_challenge = None
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error completing challenge: {e}")
+                    
+                    confirm_challenge()
             else:
                 st.button("Click a challenge", disabled=True)
 
