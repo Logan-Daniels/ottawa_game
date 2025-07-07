@@ -6,17 +6,23 @@ from streamlit_folium import st_folium
 from streamlit_js_eval import get_geolocation
 import os
 import pandas as pd
+import pymongo
 from functions import *
 
 st.set_page_config(
     page_title = "LITs' Ottawa Game",
     page_icon = os.path.join(os.getcwd(), "images", "kinneret_logo.png"),
-    layout="wide",
+    layout = "wide",
 )
 
 # Updated CSS to constrain scrolling and reduce spacing
 st.markdown(
     """
+    <link rel="manifest" href="data:application/json;charset=utf-8,{manifest_json}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#ffffff">
+    <link rel="apple-touch-icon" href="images/kinneret_logo.png">
+
     <style>
         /* Fix viewport height and prevent page scrolling */
         section[data-testid="stSidebar"] {
@@ -93,102 +99,242 @@ st.markdown(
     unsafe_allow_html = True,
 )
 
-# Read points and set initial CRS
-gdf = gpd.read_file(os.path.join(os.getcwd(), "data", "win_locations.csv"))[["name", "geometry"]].set_crs(4326)
-df_region_points = pd.read_csv(os.path.join(os.getcwd(), "data", "region_points.csv"))
-df_region_points = df_region_points.set_index("region")
+st.markdown("<h1 style='text-align: center; color: blue;'>LITs' Ottawa Game</h1>", unsafe_allow_html = True)
 
-# Project to a suitable UTM zone for accurate measurements
-utm_crs = gdf.estimate_utm_crs()
-gdf_projected = gdf.to_crs(utm_crs)
+gdf = gpd.read_file("zones.kml", driver = "KML")
 
-# Get centre point and other points
-centre = gdf.geometry.iloc[3]
-points = gdf_projected.iloc[:3]
+if "team" not in st.session_state:
+    st.session_state.team = None
+if "game_id" not in st.session_state:
+    st.session_state.game_id = None
 
-if "lat" not in st.session_state:
-    st.session_state.lat = centre.y
-if "lon" not in st.session_state:
-    st.session_state.lon = centre.x
-if "zoom" not in st.session_state:
-    st.session_state.zoom = 13
+if st.session_state.team == None or st.session_state.game_id == None:
+    team = st.text_input("Enter your team colour:", key = "team_input", placeholder = "Enter your team colour here")
+    game_id = st.text_input("Enter your game ID:", key = "game_id_input", placeholder = "Enter your game ID here")
+    
+    if team and game_id:
+        st.session_state.team = team.lower()
+        st.session_state.game_id = game_id
+        
+        try:
+            # Add timeout and retry parameters
+            client = pymongo.MongoClient(
+                st.secrets["mongo_url"],
+                serverSelectionTimeoutMS = 15000,  # 15 second timeout
+                connectTimeoutMS = 15000,
+                socketTimeoutMS = 15000
+            )
+            
+            # Test the connection
+            client.admin.command('ping')
+            
+            db = client["ottawa-game"]
+            collection = db[game_id]
+            
+            # Check if this is a new game and initialize team data
+            if game_id not in db.list_collection_names():
+                teams = ["orange", "pink"]
+                team_documents = []
+                
+                for team_name in teams:
+                    team_data = {"_id": team_name, "balance": 100}  # Start with 100 points
+                    # Add zones 1-9
+                    for zone_num in range(1, 10):
+                        team_data[f"zone_{zone_num}"] = 0
+                    team_documents.append(team_data)
+                
+                # Insert all team documents
+                collection.insert_many(team_documents)
+                
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Database connection failed: {e}")
+            st.info("Please check your internet connection and try again.")
 
-# Create map
-m = folium.Map(
-    min_zoom = 13,
-    location = [st.session_state.lat, st.session_state.lon],
-    zoom_start = st.session_state.zoom,
-)
+else:
+    client = pymongo.MongoClient(st.secrets["mongo_url"])
+    db = client["ottawa-game"]
+    collection = db[st.session_state.game_id]
 
-folium.TileLayer(
-        tiles = 'https://api.maptiler.com/maps/voyager/{z}/{x}/{y}.png?key=' + st.secrets["map_tiler"],
-        attr = '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a>',
-        api_key = st.secrets["map_tiler"],
-        min_zoom = 13,
-        max_zoom = 21,
-    ).add_to(m)
+    # Fetch team data
+    try:
+        orange_data = collection.find_one({"_id": "orange"})
+        pink_data = collection.find_one({"_id": "pink"})
+    except Exception as e:
+        st.error(f"Error fetching team data: {e}")
+        orange_data = None
+        pink_data = None
 
-team_colours = ("red", "blue", "green")
-# Add regions to map
-for region in range(len(df_region_points.index.unique())):
-    folium.Polygon(
-        locations = df_region_points.loc[region],
-        color = team_colours[region],
-        fill = True,
-        fill_opacity = 0.2,
-        weight = 1
-    ).add_to(m)
+    if "lat" not in st.session_state:
+        st.session_state.lat = None
+    if "lon" not in st.session_state:
+        st.session_state.lon = None
+    if "zoom" not in st.session_state:
+        st.session_state.zoom = 14
 
-# Add markers for original and centre points
-points = points.to_crs(4326)
-for i in range(len(points)):
-    folium.Marker(
-        location = (points.geometry.iloc[i].y, points.geometry.iloc[i].x),
-        icon = folium.Icon(
-            color = team_colours[i],
-            icon_color = "gold",
-            icon = "trophy",
-            prefix = "fa"
-        ),
-        popup = f'<p style="text-align: center; color: {team_colours[i]};"><b>{points.iloc[i]["name"]}</b></p>'
-    ).add_to(m)
+    centre = {"lat": 45.4248, "lon": -75.69522}
 
-# Site Design:
-st.markdown("<h1 style='text-align: center; color: blue;'>LIT's Ottawa Game</h1>", unsafe_allow_html=True)
-
-# Place map in a container to control its width
-map_container = st.container()
-with map_container:
-    output = st_folium(
-        m,
-        height = 400,
-        width = None,
+    m = folium.Map(
+        min_zoom = 5,
+        location = [centre["lat"], centre["lon"]],  # Ottawa's approximate center
+        zoom_start = 14,
     )
 
-# Create a container for the buttons with minimal spacing
-button_container = st.container()
-with button_container:
-    col1, col2 = st.columns([1, 1])  # Equal width columns
-    with col1:
-        if st.button("✛"):
-            st.session_state.getting_location = True
-            
-    with col2:
-        if st.button("🏠"):
-            st.session_state.getting_location = False
-            st.session_state.lat = centre.y
-            st.session_state.lon = centre.x
-            st.session_state.zoom = 13
-            st.rerun()
+    folium.Marker(
+        location = [st.session_state.lat,st.session_state.lon] if st.session_state.lat and st.session_state.lon else [centre["lat"], centre["lon"]],
+        icon = folium.DivIcon(
+            html = f'<i class="fa fa-location-crosshairs" style="color: #0050ff; font-size: 20px;"></i>',
+            icon_size = (25, 25),
+            icon_anchor = (12.5, 12.5)
+        )
+    ).add_to(m)
 
-if "getting_location" in st.session_state and st.session_state.getting_location:
-    try:
-        loc = get_geolocation()["coords"]
-    except TypeError:
-        raise PermissionError("Change site settings to allow location")
-    if loc:  # Ensure location data is valid
-        st.session_state.lat = loc["latitude"]
-        st.session_state.lon = loc["longitude"]
-        st.session_state.getting_location = False  # Reset flag
-        st.session_state.zoom = output["zoom"]
-        st.rerun()
+    # Function to determine zone color based on team points
+    def get_zone_color(zone_number, orange_data, pink_data):
+        if orange_data and pink_data:
+            orange_points = orange_data.get(f"zone_{zone_number}", 0)
+            pink_points = pink_data.get(f"zone_{zone_number}", 0)
+            
+            if orange_points > pink_points:
+                return rgb_to_hex_fstring(255, 150, 0)  # Orange team winning
+            elif pink_points > orange_points:
+                return rgb_to_hex_fstring(255, 0, 150)  # Pink team winning
+            else:
+                return rgb_to_hex_fstring(255, 75, 75)  # Tie
+        else:
+            return rgb_to_hex_fstring(255, 75, 75)  # Default color if no data
+
+    # Function to create popup HTML with team scores
+    def create_popup_html(zone_number, orange_data, pink_data):
+        orange_points = orange_data.get(f"zone_{zone_number}", 0) if orange_data else 0
+        pink_points = pink_data.get(f"zone_{zone_number}", 0) if pink_data else 0
+        
+        html = f"""
+        <div style="font-family: Arial, sans-serif; min-width: 150px;">
+            <h4 style="margin: 0; text-align: center;">Zone {zone_number}</h4>
+            <div style="margin: 10px 0;">
+                <div style="color: #FF9600; font-weight: bold;">🟠 Orange: {orange_points}</div>
+                <div style="color: #FF0096; font-weight: bold;">🩷 Pink: {pink_points}</div>
+            </div>
+        </div>
+        """
+        return html
+
+    for zone in range(len(gdf)):
+        x_coords, y_coords = gdf.geometry.iloc[zone].exterior.coords.xy
+        coords = [(y, x) for x, y in zip(x_coords, y_coords)]
+        
+        # Get color based on team points (zone numbers are 1-indexed)
+        zone_number = zone + 1
+        zone_color = get_zone_color(zone_number, orange_data, pink_data)
+        
+        # Create popup content
+        popup_html = create_popup_html(zone_number, orange_data, pink_data)
+        
+        folium.Polygon(
+            locations = coords,
+            color = zone_color,
+            fill = True,
+            fill_opacity = 0.3,
+            weight = 3,
+            popup = folium.Popup(popup_html, max_width=200)
+        ).add_to(m)
+        
+    folium.TileLayer(
+            tiles = 'https://api.maptiler.com/maps/voyager/{z}/{x}/{y}.png?key=' + st.secrets["map_tiler"],
+            attr = '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a>',
+            api_key = st.secrets["map_tiler"],
+            min_zoom = 13,
+            max_zoom = 21,
+        ).add_to(m)
+
+    map_container = st.container()
+    with map_container:
+        output = st_folium(
+            m,
+            height = 400,
+            width = None,
+        )
+
+    # Function to get the nearest zone to user location
+    def get_nearest_zone(user_lat, user_lon, gdf):
+        if user_lat is None or user_lon is None:
+            return None
+        
+        user_point = Point(user_lon, user_lat)
+        user_gdf = gpd.GeoDataFrame([1], geometry=[user_point], crs="EPSG:4326")
+        
+        # Find nearest zone
+        nearest = gpd.sjoin_nearest(user_gdf, gdf, how="left")
+        closest_zone_idx = nearest.index_right.iloc[0]
+        
+        return closest_zone_idx + 1  # Return 1-indexed zone number
+
+    # Display team info and deposit interface
+    if orange_data and pink_data:
+        current_team_data = orange_data if st.session_state.team == "orange" else pink_data
+        team_color = "#FF9600" if st.session_state.team == "orange" else "#FF0096"
+        team_emoji = "🟠" if st.session_state.team == "orange" else "🟣"
+        
+        st.markdown(f"<h3 style='color: {team_color}; text-align: center;'>{team_emoji} {st.session_state.team.title()} Team {team_emoji}</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='color: {team_color}; text-align: center;'>Balance: {current_team_data.get('balance', 0)} points</h4>", unsafe_allow_html=True)
+        
+        # Get the nearest zone
+        nearest_zone = get_nearest_zone(st.session_state.lat, st.session_state.lon, gdf)
+        
+        if nearest_zone is not None:
+            # Display the nearest zone without a dropdown            
+            col1, col2 = st.columns(2)
+            with col1:
+                max_deposit = current_team_data.get('balance', 0)
+                deposit_amount = st.number_input("Points to deposit:", min_value=0, max_value=max_deposit, value=0)
+            with col2:
+                if st.button(f"Deposit to Zone {nearest_zone}"):
+                    if deposit_amount > 0:
+                        try:
+                            # Update database
+                            collection.update_one(
+                                {"_id": st.session_state.team},
+                                {
+                                    "$inc": {
+                                        "balance": -deposit_amount,
+                                        f"zone_{nearest_zone}": deposit_amount
+                                    }
+                                }
+                            )
+                            st.success(f"Successfully deposited {deposit_amount} points to Zone {nearest_zone}!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error depositing points: {e}")
+                    else:
+                        st.warning("Please enter a deposit amount greater than 0.")
+        else:
+            st.warning("Please enable location services to deposit points.")
+
+    # Create a container for the buttons with minimal spacing
+    button_container = st.container()
+    with button_container:
+        col1, col2 = st.columns([1, 1])  # Equal width columns
+        with col1:
+            if st.button("✛"):
+                st.session_state.getting_location = True
+                
+        with col2:
+            if st.button("🏠"):
+                st.session_state.getting_location = False
+                st.session_state.lat = centre["lat"]
+                st.session_state.lon = centre["lon"]
+                st.session_state.zoom = 14
+                st.rerun()
+
+    if "getting_location" in st.session_state:
+        try:
+            loc = get_geolocation()["coords"]
+        except TypeError:
+            raise PermissionError("Change site settings to allow location")
+        if loc:  # Ensure location data is valid
+            st.session_state.lat = loc["latitude"]
+            st.session_state.lon = loc["longitude"]
+            st.session_state.zoom = output["zoom"]
+            st.session_state.getting_location = False  # Reset flag

@@ -1,0 +1,17 @@
+{
+    "name": "Ottawa Game",
+    "short_name": "Ottawa Game",
+    "icons": [
+        {
+            "src": "images/kinneret_logo.png",
+            "sizes": "600x600",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "start_url": "/",
+    "display": "standalone",
+    "theme_color": "#ffffff",
+    "background_color": "#ffffff"
+}
+  

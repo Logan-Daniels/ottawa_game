@@ -43,3 +43,7 @@ def create_circle_section(center, radius, start_angle, end_angle, num_points = 1
         points.append(Point(x, y))
         
     return points
+
+def rgb_to_hex_fstring(r, g, b):
+    """Converts RGB values (0-255) to a hexadecimal color code string."""
+    return f'#{r:02X}{g:02X}{b:02X}'
