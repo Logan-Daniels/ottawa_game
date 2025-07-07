@@ -20,7 +20,7 @@ def create_popup_html(zone_number, orange_data, pink_data):
     <div style="font-family: Arial, sans-serif; min-width: 150px;">
         <h4 style="margin: 0; text-align: center;">Zone {zone_number}</h4>
         <div style="margin: 10px 0;">
-            <div style="color: #FF9600; font-weight: bold;">🟠 Orange: {orange_points}</div>
+            <div style="color: #FF9600; font-weight: bold;">🧡 Orange: {orange_points}</div>
             <div style="color: #FF0096; font-weight: bold;">🩷 Pink: {pink_points}</div>
         </div>
     </div>
@@ -324,7 +324,6 @@ else:
                     f"""<b style="text-align: center;"><h3>{challenge['location']}</h3>{challenge['title']}</b><br><i>Points: {challenge['points']}</i><br>{challenge['challenge']}<br><a href='{challenge['link']}' target='_blank'>View on Google Maps</a>""",
                     max_width = 300,
                 ),
-                tooltip = challenge['title'],
             ).add_to(m)
         
     folium.TileLayer(
@@ -355,7 +354,7 @@ else:
     # Display team info and deposit interface
     if orange_data and pink_data:
         team_color = "#FF9600" if st.session_state.team == "orange" else "#FF0096"
-        team_emoji = "🟠" if st.session_state.team == "orange" else "🩷"
+        team_emoji = "🧡" if st.session_state.team == "orange" else "🩷"
         
         st.markdown(f"<h4 style='color: {team_color}; text-align: center;'>{team_emoji} {st.session_state.team.title()} Team {team_emoji}</h4>", unsafe_allow_html=True)
         st.markdown(f"<h4 style='color: {team_color}; text-align: center;'>Balance: {current_team_data.get('balance', 0)} points</h4>", unsafe_allow_html=True)
@@ -364,7 +363,7 @@ else:
             col1, col2 = st.columns(2)
             with col1:
                 max_deposit = current_team_data.get('balance', 0)
-                deposit_amount = st.number_input("Points to deposit:", min_value=0, max_value=max_deposit, value=0)
+                deposit_amount = st.number_input("How many points do you want to deposit:", min_value = 0, max_value = max_deposit, value = 0)
             with col2:
                 if st.button(f"Deposit to Zone {nearest_zone}"):
                     if deposit_amount > 0:
@@ -409,20 +408,12 @@ else:
     # Create a container for the buttons with minimal spacing
     button_container = st.container()
     with button_container:
-        col1, col2, col3 = st.columns([1, 1, 1])  # Three equal columns
+        col1, col2 = st.columns((1, 1))  # Three equal columns
         with col1:
-            if st.button("✛"):
+            if st.button("✛ Update Location ✛"):
                 st.session_state.getting_location = True
-                
-        with col2:
-            if st.button("🏠"):
-                st.session_state.getting_location = False
-                st.session_state.lat = centre["lat"]
-                st.session_state.lon = centre["lon"]
-                st.session_state.zoom = 14
-                st.rerun()
         
-        with col3:
+        with col2:
             # Challenge completion button
             if st.session_state.last_clicked_challenge is not None:
                 challenge = st.session_state.last_clicked_challenge
@@ -464,7 +455,7 @@ else:
                     
                     confirm_challenge()
             else:
-                st.button("Click a challenge", disabled=True)
+                st.button("🏆 Click a challenge 🏆", disabled=True)
 
     if "getting_location" in st.session_state:
         try:
