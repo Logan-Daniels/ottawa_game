@@ -15,6 +15,40 @@ st.set_page_config(
     layout = "wide",
 )
 
+centre = {"lat": 45.4248, "lon": -75.69522}
+challenges = (
+    {
+        "location": "Fairmount Château Laurier",
+        "lat": 45.42566,
+        "lon": -75.69529,
+        "title": "Fancy Washroom",
+        "challenge": "Have a team member use a toilet in the Fairmount Château Laurier.",
+        "points": 300,
+        "zone": 8,
+        "link": "https://maps.google.com/?cid=8854846295512453637",
+    },
+    {
+        "location": "National Gallery of Canada",
+        "lat": 45.42935,
+        "lon": -75.69727,
+        "title": "Recreate Maman",
+        "challenge": "Take a photo of one camper making a bridge or 4 legged pose and another camper overtop of them to be the other 4 spider legs.",
+        "points": 100,
+        "zone": 8,
+        "link": "https://maps.google.com/?cid=7418760184671049655",
+    },
+    {
+        "location": "Kìwekì Point",
+        "lat": 45.4296,
+        "lon": -75.70098,
+        "title": "Explore for an Explorer",
+        "challenge": "Find and recreate the Samuel de Champlain statue at Kìwekì Point without looking up the exact location of the statue (it is in the park).",
+        "points": 200,
+        "zone": 8,
+        "link": "https://maps.google.com/?cid=10074131504615629002",
+    },
+)
+
 # Updated CSS to constrain scrolling and reduce spacing
 st.markdown(
     """
@@ -101,18 +135,20 @@ st.markdown(
 
 st.markdown("<h1 style='text-align: center; color: blue;'>LITs' Ottawa Game</h1>", unsafe_allow_html = True)
 
-gdf = gpd.read_file("zones.kml", driver = "KML")
+gdf = gpd.read_file(os.path.join(os.getcwd(), "data", "zones.kml"), driver = "KML")
 
 if "team" not in st.session_state:
     st.session_state.team = None
 if "game_id" not in st.session_state:
     st.session_state.game_id = None
+if "last_clicked_challenge" not in st.session_state:
+    st.session_state.last_clicked_challenge = None
 
 if st.session_state.team == None or st.session_state.game_id == None:
-    team = st.text_input("Enter your team colour:", key = "team_input", placeholder = "Enter your team colour here")
     game_id = st.text_input("Enter your game ID:", key = "game_id_input", placeholder = "Enter your game ID here")
+    team = st.radio("Team:", ["Orange", "Pink"], key = "team_radio", horizontal = True)
     
-    if team and game_id:
+    if st.button("Go!") and team and game_id:
         st.session_state.team = team.lower()
         st.session_state.game_id = game_id
         
@@ -141,11 +177,17 @@ if st.session_state.team == None or st.session_state.game_id == None:
                     # Add zones 1-9
                     for zone_num in range(1, 10):
                         team_data[f"zone_{zone_num}"] = 0
+                    # Add completed challenges list
+                    team_data["completed_challenges"] = []
                     team_documents.append(team_data)
                 
                 # Insert all team documents
                 collection.insert_many(team_documents)
-                
+            
+            st.session_state.lat = centre["lat"]
+            st.session_state.lon = centre["lon"]
+            st.session_state.zoom = 14
+
             st.rerun()
             
         except Exception as e:
@@ -172,8 +214,6 @@ else:
         st.session_state.lon = None
     if "zoom" not in st.session_state:
         st.session_state.zoom = 14
-
-    centre = {"lat": 45.4248, "lon": -75.69522}
 
     m = folium.Map(
         min_zoom = 5,
@@ -221,6 +261,23 @@ else:
         """
         return html
 
+    # Function to get the nearest zone to user location
+    def get_nearest_zone(user_lat, user_lon, gdf):
+        if user_lat is None or user_lon is None:
+            return None
+        
+        user_point = Point(user_lon, user_lat)
+        user_gdf = gpd.GeoDataFrame([1], geometry=[user_point], crs="EPSG:4326")
+        
+        # Find nearest zone
+        nearest = gpd.sjoin_nearest(user_gdf, gdf, how="left")
+        closest_zone_idx = nearest.index_right.iloc[0]
+        
+        return closest_zone_idx + 1  # Return 1-indexed zone number
+
+    # Get the nearest zone for highlighting
+    nearest_zone = get_nearest_zone(st.session_state.lat, st.session_state.lon, gdf)
+    
     for zone in range(len(gdf)):
         x_coords, y_coords = gdf.geometry.iloc[zone].exterior.coords.xy
         coords = [(y, x) for x, y in zip(x_coords, y_coords)]
@@ -232,14 +289,40 @@ else:
         # Create popup content
         popup_html = create_popup_html(zone_number, orange_data, pink_data)
         
+        # Highlight the nearest zone with higher opacity and border weight
+        is_nearest = (nearest_zone == zone_number)
+        fill_opacity = 0.6 if is_nearest else 0.3
+        border_weight = 5 if is_nearest else 3
+        
         folium.Polygon(
             locations = coords,
             color = zone_color,
             fill = True,
-            fill_opacity = 0.3,
-            weight = 3,
+            fill_opacity = fill_opacity,
+            weight = border_weight,
             popup = folium.Popup(popup_html, max_width=200)
         ).add_to(m)
+
+    # Get completed challenges for current team
+    current_team_data = orange_data if st.session_state.team == "orange" else pink_data
+    completed_challenges = current_team_data.get("completed_challenges", []) if current_team_data else []
+    
+    # Only show challenges that haven't been completed by this team
+    for i, challenge in enumerate(challenges):
+        if challenge["title"] not in completed_challenges:
+            folium.Marker(
+                location = [challenge["lat"], challenge["lon"]],
+                icon = folium.DivIcon(
+                    html = f'<i class="fa-solid fa-trophy" style="color: #{"FFD700" if challenge["points"] >= 300 else "C0C0C0" if challenge["points"] >= 200 else "CD7F32"}; font-size: 25px;"></i>',
+                    icon_size = (24, 16),
+                    icon_anchor = (12, 8)
+                ),
+                popup = folium.Popup(
+                    f"""<b style="text-align: center;"><h4>{challenge['location']}</h4>{challenge['title']}</b><br><i>Points: {challenge['points']}</i><br>{challenge['challenge']}<br><a href='{challenge['link']}' target='_blank'>View on Google Maps</a>""",
+                    max_width = 300,
+                ),
+                tooltip = challenge['title'],
+            ).add_to(m)
         
     folium.TileLayer(
             tiles = 'https://api.maptiler.com/maps/voyager/{z}/{x}/{y}.png?key=' + st.secrets["map_tiler"],
@@ -257,34 +340,24 @@ else:
             width = None,
         )
 
-    # Function to get the nearest zone to user location
-    def get_nearest_zone(user_lat, user_lon, gdf):
-        if user_lat is None or user_lon is None:
-            return None
-        
-        user_point = Point(user_lon, user_lat)
-        user_gdf = gpd.GeoDataFrame([1], geometry=[user_point], crs="EPSG:4326")
-        
-        # Find nearest zone
-        nearest = gpd.sjoin_nearest(user_gdf, gdf, how="left")
-        closest_zone_idx = nearest.index_right.iloc[0]
-        
-        return closest_zone_idx + 1  # Return 1-indexed zone number
+    # Check if a challenge marker was clicked
+    if output["last_object_clicked_popup"] is not None:
+        popup_content = output["last_object_clicked_popup"]
+        # Find which challenge was clicked based on popup content
+        for challenge in challenges:
+            if challenge["title"] in popup_content and challenge["title"] not in completed_challenges:
+                st.session_state.last_clicked_challenge = challenge
+                break
 
     # Display team info and deposit interface
     if orange_data and pink_data:
-        current_team_data = orange_data if st.session_state.team == "orange" else pink_data
         team_color = "#FF9600" if st.session_state.team == "orange" else "#FF0096"
-        team_emoji = "🟠" if st.session_state.team == "orange" else "🟣"
+        team_emoji = "🟠" if st.session_state.team == "orange" else "🩷"
         
-        st.markdown(f"<h3 style='color: {team_color}; text-align: center;'>{team_emoji} {st.session_state.team.title()} Team {team_emoji}</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='color: {team_color}; text-align: center;'>{team_emoji} {st.session_state.team.title()} Team {team_emoji}</h4>", unsafe_allow_html=True)
         st.markdown(f"<h4 style='color: {team_color}; text-align: center;'>Balance: {current_team_data.get('balance', 0)} points</h4>", unsafe_allow_html=True)
         
-        # Get the nearest zone
-        nearest_zone = get_nearest_zone(st.session_state.lat, st.session_state.lon, gdf)
-        
         if nearest_zone is not None:
-            # Display the nearest zone without a dropdown            
             col1, col2 = st.columns(2)
             with col1:
                 max_deposit = current_team_data.get('balance', 0)
@@ -315,7 +388,7 @@ else:
     # Create a container for the buttons with minimal spacing
     button_container = st.container()
     with button_container:
-        col1, col2 = st.columns([1, 1])  # Equal width columns
+        col1, col2, col3 = st.columns([1, 1, 1])  # Three equal columns
         with col1:
             if st.button("✛"):
                 st.session_state.getting_location = True
@@ -327,6 +400,28 @@ else:
                 st.session_state.lon = centre["lon"]
                 st.session_state.zoom = 14
                 st.rerun()
+        
+        with col3:
+            # Challenge completion button
+            if st.session_state.last_clicked_challenge is not None:
+                challenge = st.session_state.last_clicked_challenge
+                if st.button(f"Complete: {challenge['title']} ({challenge['points']} pts)"):
+                    try:
+                        # Update database - add points to balance and mark challenge as completed
+                        collection.update_one(
+                            {"_id": st.session_state.team},
+                            {
+                                "$inc": {"balance": challenge['points']},
+                                "$addToSet": {"completed_challenges": challenge['title']}
+                            }
+                        )
+                        st.success(f"Challenge '{challenge['title']}' completed! +{challenge['points']} points!")
+                        st.session_state.last_clicked_challenge = None
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error completing challenge: {e}")
+            else:
+                st.button("Click a challenge", disabled=True)
 
     if "getting_location" in st.session_state:
         try:
