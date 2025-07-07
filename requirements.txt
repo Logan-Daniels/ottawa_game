@@ -2,7 +2,7 @@ folium==0.16.0
 geopandas==1.0.1
 numpy==1.26.0
 Shapely==2.0.7
-streamlit==1.36.0
+streamlit==1.46.1
 streamlit_folium
 streamlit_js_eval
 pymongo==4.5.0
