@@ -12,6 +12,32 @@ def rgb_to_hex_fstring(r, g, b):
     """Converts RGB values (0-255) to a hexadecimal color code string."""
     return f'#{r:02X}{g:02X}{b:02X}'
 
+def test_mongo_connection():
+    """Test MongoDB connection with better error handling"""
+    try:
+        # Try with shorter timeout first
+        client = pymongo.MongoClient(
+            st.secrets["mongo_url"],
+            serverSelectionTimeoutMS=8000,  # 8 seconds
+            connectTimeoutMS=8000,
+            socketTimeoutMS=8000,
+            retryWrites=True,
+            w='majority'
+        )
+        
+        # Test the connection
+        client.admin.command('ping')
+        return client, None
+        
+    except pymongo.errors.ServerSelectionTimeoutError as e:
+        return None, f"Server selection timeout - please check your internet connection and MongoDB Atlas settings: {str(e)}"
+    except pymongo.errors.ConnectionFailure as e:
+        return None, f"Connection failure - check if your IP is whitelisted in MongoDB Atlas: {str(e)}"
+    except pymongo.errors.ConfigurationError as e:
+        return None, f"Configuration error - check your connection string: {str(e)}"
+    except Exception as e:
+        return None, f"Unexpected error: {str(e)}"
+
 # Function to create popup HTML with team scores
 def create_popup_html(zone_number, orange_data, pink_data):
     orange_points = orange_data.get(f"zone_{zone_number}", 0) if orange_data else 0
@@ -34,10 +60,10 @@ def get_nearest_zone(user_lat, user_lon, gdf):
         return None
     
     user_point = Point(user_lon, user_lat)
-    user_gdf = gpd.GeoDataFrame([1], geometry=[user_point], crs = "EPSG:4326")
+    user_gdf = gpd.GeoDataFrame([1], geometry=[user_point], crs="EPSG:4326")
     
     # Find nearest zone
-    nearest = gpd.sjoin_nearest(user_gdf, gdf, how = "left")
+    nearest = gpd.sjoin_nearest(user_gdf, gdf, how="left")
     closest_zone_idx = nearest.index_right.iloc[0]
     
     return closest_zone_idx + 1  # Return 1-indexed zone number
@@ -46,7 +72,7 @@ def get_nearest_zone(user_lat, user_lon, gdf):
 CARDS = {
     "lemon_phylactery": {
         "title": "Curse of the Lemon Phylactery",
-        "description": "Before your opponent can deposit points or complete another challenge, they must first affix a lawfully obtained lemon or lime to one of their campers for the rest of the game. If the lemon detaches from the camper before the end of the program, the team must memorize and correctly recite all members of the Canadian cabinet.",
+        "description": "Before your opponent can deposit points or complete another challenge, they must first affix a lawfully obtained lemon or lime fruit to one of their campers for the rest of the game. If the citrus detaches from the camper before the end of the program, the team must memorize and correctly recite all members of the Canadian cabinet before they can continue with anything else. The office will reimburse you up to $10 for a lemon and/or materials to attach it to a camper. Make sure to keep any receipts.",
         "type": "curse",
         "link": "https://www.pm.gc.ca/en/cabinet"
     },
@@ -88,7 +114,7 @@ CARDS = {
         "title": "Risky Trivia: History",
         "description": "You will be asked a multiple-choice trivia question. You can wager your points below. If you get it right, you will get three times as much back. If you get it wrong, you will lose the points you wagered. You cannot look up the answer.",
         "type": "risky_trivia_mc",
-        "question": "Which of these cities was not a capital of Upper and Lower Canada before Ottawa was made the permanent capital in 1857?",
+        "question": "Which of these cities was not a capital of the United Province of Canada before Ottawa was made the permanent capital in 1857?",
         "options": ["London, Ontario", "Toronto, Ontario", "Montreal, Quebec", "Quebec City, Quebec", "Kingston, Ontario"],
         "answer": "London, Ontario"
     },
@@ -111,43 +137,243 @@ CARDS = {
 }
 
 st.set_page_config(
-    page_title = "LITs' Ottawa Game",
-    page_icon = os.path.join(os.getcwd(), "images", "kinneret_logo.png"),
-    layout = "wide",
+    page_title="LITs' Ottawa Game",
+    page_icon=os.path.join(os.getcwd(), "images", "kinneret_logo.png"),
+    layout="wide",
 )
 
 centre = {"lat": 45.4248, "lon": -75.69522}
 challenges = (
-    {
-        "location": "Fairmount Château Laurier",
-        "lat": 45.42566,
-        "lon": -75.69529,
-        "title": "Fancy Washroom",
-        "challenge": "Have a team member use a toilet in the Fairmount Château Laurier.",
-        "points": 300,
-        "zone": 8,
-        "link": "https://maps.google.com/?cid=8854846295512453637",
-    },
-    {
-        "location": "National Gallery of Canada",
-        "lat": 45.42935,
-        "lon": -75.69727,
-        "title": "Recreate Maman",
-        "challenge": "Take a photo of one camper making a bridge or 4 legged pose and another camper overtop of them to be the other 4 spider legs.",
-        "points": 100,
-        "zone": 8,
-        "link": "https://maps.google.com/?cid=7418760184671049655",
-    },
-    {
-        "location": "Kìwekì Point",
-        "lat": 45.4296,
-        "lon": -75.70098,
-        "title": "Explore for an Explorer",
-        "challenge": "Find and recreate the Samuel de Champlain statue at Kìwekì Point without looking up the exact location of the statue (it is in the park).",
-        "points": 200,
-        "zone": 8,
-        "link": "https://maps.google.com/?cid=10074131504615629002",
-    },
+{
+   "location": "Fairmount Château Laurier",
+   "lat": 45.42566,
+   "lon": -75.69529,
+   "title": "Fancy Washroom",
+   "challenge": "Have a team member use a toilet in the Fairmount Château Laurier.",
+   "points": 300,
+   "zone": 8,
+   "link": "https://maps.google.com/?cid=8854846295512453637",
+},
+{
+   "location": "National Gallery of Canada",
+   "lat": 45.42935,
+   "lon": -75.69727,
+   "title": "Recreate Maman",
+   "challenge": "Take a photo of one camper making a bridge or 4-legged pose and another camper overtop of them to be the other 4 spider legs.",
+   "points": 100,
+   "zone": 8,
+   "link": "https://maps.google.com/?cid=7418760184671049655",
+},
+{
+   "location": "Kìwekì Point",
+   "lat": 45.4296,
+   "lon": -75.70098,
+   "title": "Explore for an Explorer",
+   "challenge": "Find and recreate the Samuel de Champlain statue at Kìwekì Point without looking up the exact location of the statue (it is in the park).",
+   "points": 200,
+   "zone": 8,
+   "link": "https://maps.google.com/?cid=10074131504615629002",
+},
+{
+   "location": "Bytown Museum",
+   "lat": 45.42586,
+   "lon": -75.69767,
+   "title": "",
+   "challenge": """Watch <a target="_blank" href="https://www.youtube.com/watch?v=SVsQuv8P9-g">this short video</a> about the Bytown Museum and the history of Ottawa outside the Bytown Museum.""",
+   "points": 100,
+   "zone": 1,
+   "link": "https://maps.google.com/?cid=5318761341977640144",
+},
+{
+   "location": "Senate of Canada",
+   "lat": 45.42477,
+   "lon": -75.69399,
+   "title": "Identify the Famous Five",
+   "challenge": """Find the statues of the Famous Five suffragettes outside the Supreme Court at a monument called "Women Are Persons!" Read out <a target="_blank" href="https://www.canada.ca/en/canadian-heritage/services/art-monuments/monuments/women-are-persons.html">this very short article</a>. Spend at least 30 seconds discussing the women's suffrage movement in Canada. Then, all of the campers must learn and recite all of their names and read any plaques that may accompany the statues to complete the challenge.""",
+   "points": 100,
+   "zone": 6,
+   "link": "https://maps.google.com/?cid=761047823053711970",
+},
+{
+   "location": "National Arts Centre",
+   "lat": 45.42327,
+   "lon": -75.69338,
+   "title": "Enjoy some Canadian art",
+   "challenge": "Listen to (and appreciate) all of Welcome to the Rock from the viral Canadian musical Come From Away.",
+   "points": 100,
+   "zone": 3,
+   "link": "https://maps.google.com/?cid=2011512308839086810",
+},
+{
+   "location": "Ottawa Jail Hostel",
+   "lat": 45.424749,
+   "lon": -75.688747,
+   "title": "The Jail Hostel",
+   "challenge": """Enter the Arts Court at <a target="_blank" href="https://maps.app.goo.gl/Y3kkZHfwK7uUQjRv7">2 Daly Ave</a> (the former courthouse and find the 2 publicly accessible jail cells in the Arts Court. Once there, read <a target="_blank" href="https://www.atlasobscura.com/places/ottawa-jail-hostel">this article</a> about the connected Ottawa Jail Hostel. If you spend at least 8 minutes looking for the cells unsuccessfully, you can read the article outside the entrance to the hostel at <a target="_blank" href="https://maps.app.goo.gl/Y3kkZHfwK7uUQjRv7">75 Nicholas St</a>.""",
+   "points": 300,
+   "zone": 6,
+   "link": "https://maps.app.goo.gl/Y3kkZHfwK7uUQjRv7",
+},
+{
+   "location": "Centennial Flame",
+   "lat": 45.42373,
+   "lon": -75.6987,
+   "title": "Stand on Guard for Thee",
+   "challenge": "Find a Mountie in their formal uniform guarding the parliament. Take a photo of all the campers in your group mimicking their pose alongside them.",
+   "points": 200,
+   "zone": 2,
+   "link": "https://maps.google.com/?cid=9981869545010240994",
+},
+{
+   "location": "Rideau Centre",
+   "lat": 45.42589,
+   "lon": -75.69208,
+   "title": "Find a Prime Minister",
+   "challenge": "Before 9pm: Take a photo of a book (supposedly) written by a Prime Minister the !ndigo store at the Rideau Centre without asking an employee. After the Rideau Centre closes at 9pm, you can instead photograph the name of a Prime Minister in the Rideau LRT station connected to the mall without the help of any employees there. You cannot write the name yourself or find it on a mobile device.",
+   "points": 300,
+   "zone": 6,
+   "link": "https://maps.app.goo.gl/8qrvtrwQyEGQE3bz9",
+},
+{
+   "location": "House of Commons",
+   "lat": 45.42332,
+   "lon": -75.7005,
+   "title": "Drag the Speaker of the House",
+   "challenge": """There is a tradition that a newly elected Speaker of the House is dragged to their chair, because, historically, British speakers risked execution if the news they reported to the king was displeasing. Watch <a target="_blank" href="https://www.youtube.com/shorts/HIQ1VyJA1vM">this video of House Speaker Francis Scarpaleggia being dragged to his seat</a>. Then pick up a camper (with the campers) and carry them for at least 20 metres (66').""",
+   "points": 200,
+   "zone": 2,
+   "link": "https://maps.google.com/?cid=13333871194299290015",
+},
+{
+   "location": "City Hall",
+   "lat": 45.4208,
+   "lon": -75.68999,
+   "title": "O Canada",
+   "challenge": "Sing the national anthem (bilingually)",
+   "points": 100,
+   "zone": 3,
+   "link": "https://maps.google.com/?cid=9794861075158029403",
+},
+{
+   "location": "Supreme Court of Canada",
+   "lat": 45.42185,
+   "lon": -75.70537,
+   "title": "The Scales of Justice",
+   "challenge": "Use materials found in nature to make a scale. It must make a T shape with an item hanging from each side of the T that do not touch the ground.",
+   "points": 300,
+   "zone": 1,
+   "link": "https://maps.app.goo.gl/RSJRh2Lgke2YwgV9A",
+},
+{
+   "location": "Tabaret Hall",
+   "lat": 45.42453,
+   "lon": -75.68632,
+   "title": "Social Anxiety Test",
+   "challenge": "Get someone to salute alongside all of the campers in your group in a photo.",
+   "points": 200,
+   "zone": 6,
+   "link": "https://www.google.com/maps?cid=15941439919447695894",
+},
+{
+   "location": "Rideau Canal Locks",
+   "lat": 45.4248,
+   "lon": -75.69522,
+   "title": "Melted Ice Skating",
+   "challenge": "The Rideau Canal Skateway is the longest skating venue in the world … in winter. Have two campers try to skate on land. They must move at least 10 metres (33') each without either of their feet ever losing contact with the ground completely.",
+   "points": 200,
+   "zone": 3,
+   "link": "https://www.google.com/maps/place/Rideau+Canal,+Locks+1+-+8+-+Ottawa/@45.4248006,-75.695228,17z/data=!3m1!4b1!4m6!3m5!1s0x4cce04fe324ecc63:0xf564613f62f3104c!8m2!3d45.4248006!4d-75.695228!16s%2Fg%2F11x9mcwtk?entry=ttu&g_ep=EgoyMDI1MDcwNi4wIKXMDSoASAFQAw%3D%3D",
+},
+{
+   "location": "Confederation Park",
+   "lat": 45.42239,
+   "lon": -75.69245,
+   "title": "Leaving the Comfort Zone",
+   "challenge": "Convince a stranger to dab with a camper in a photo in Confederation Park.",
+   "points": 200,
+   "zone": 4,
+   "link": "https://maps.google.com/?cid=5677298280561665746",
+},
+{
+   "location": "ByWard Market",
+   "lat": 45.42775,
+   "lon": -75.69243,
+   "title": "International City",
+   "challenge": "Find food items on a menu or at a food stall that is most associated with a specific country/region on 3 different continents besides North America.",
+   "points": 200,
+   "zone": 7,
+   "link": "https://maps.google.com/?cid=2099143516218795562",
+},
+{
+   "location": "Embassy of Mexico",
+   "lat": 45.42127,
+   "lon": -75.69808,
+   "title": "Diplomatic Stroll",
+   "challenge": "Without using a phone to navigate, start at the Mexican embassy and photograph another embassy.",
+   "points": 300,
+   "zone": 9,
+   "link": "https://maps.google.com/?cid=14539730619693688087",
+},
+{
+   "location": "uOttawa Station",
+   "lat": 45.42076,
+   "lon": -75.68275,
+   "title": "Find a Train",
+   "challenge": "Photograph an LRT vehicle from uOttawa station.",
+   "points": 200,
+   "zone": 5,
+   "link": "https://maps.google.com/?cid=17247419341606602483",
+},
+{
+   "location": "University Square",
+   "lat": 45.42181,
+   "lon": -75.68296,
+   "title": "Ottawa's Got Talent",
+   "challenge": "Camper must awkwardly dance for a full minute with no music in University Square on video.",
+   "points": 100,
+   "zone": 5,
+   "link": "https://maps.google.com/?cid=3627643191025529899",
+},
+{
+   "location": "Morisset Library",
+   "lat": 45.42326,
+   "lon": -75.68402,
+   "title": "Find some University Pride",
+   "challenge": "Take a photo of a camper with someone wearing University of Ottawa GGs merch. It must say GGs (regular uOttawa merch does not count).",
+   "points": 300,
+   "zone": 5,
+   "link": "https://maps.google.com/?cid=16222945467375777481",
+},
+{
+   "location": "Parliament Hill",
+   "lat": 45.42586,
+   "lon": -75.70023,
+   "title": "Canada's First Rulers",
+   "challenge": "Find the statues of Canada's first prime minister and first monarch post-confederation (John A. Macdonald and Queen Victoria). Take a photo of a camper recreating their poses next to each statue.",
+   "points": 200,
+   "zone": 1,
+   "link": "https://maps.google.com/?cid=16265817237874429587",
+},
+{
+   "location": "Saint Patrick Basilica",
+   "lat": 45.41649,
+   "lon": -75.7009,
+   "title": "Find Christ",
+   "challenge": "Photograph 5 different crosses on Saint Patrick Basilica.",
+   "points": 200,
+   "zone": 9,
+   "link": "https://maps.google.com/?cid=4958757389272605047",
+},
+{
+   "location": "Ottawa Sign",
+   "lat": 45.4275,
+   "lon": -75.69449,
+   "title": "Recreate the Ottawa Sign",
+   "challenge": "Have your campers spell out Ottawa with their bodies in a photo in front of the Ottawa sign.",
+   "points": 200,
+   "zone": 7,
+   "link": "https://maps.google.com/?cid=6146839926272358918",
+},
 )
 
 # Updated CSS to constrain scrolling and reduce spacing
@@ -255,12 +481,12 @@ st.markdown(
         }
     </style>
     """,
-    unsafe_allow_html = True,
+    unsafe_allow_html=True,
 )
 
-st.markdown("<h1 style='text-align: center; color: blue;'>LITs' Ottawa Game</h1>", unsafe_allow_html = True)
+st.markdown("<h1 style='text-align: center; color: blue;'>LITs' Ottawa Game</h1>", unsafe_allow_html=True)
 
-gdf = gpd.read_file(os.path.join(os.getcwd(), "data", "zones.kml"), driver = "KML")
+gdf = gpd.read_file(os.path.join(os.getcwd(), "data", "zones.kml"), driver="KML")
 
 if "team" not in st.session_state:
     st.session_state.team = None
@@ -290,72 +516,99 @@ if "showing_curse_input" not in st.session_state:
     st.session_state.showing_curse_input = None
 
 if st.session_state.team == None or st.session_state.game_id == None:
-    game_id = st.text_input("Enter your game ID:", key = "game_id_input", placeholder = "Enter your game ID here")
-    team = st.radio("Team:", ["Orange", "Pink"], key = "team_radio", horizontal = True)
+    game_id = st.text_input("Enter your game ID:", key="game_id_input", placeholder="Enter your game ID here")
+    team = st.radio("Team:", ["Orange", "Pink"], key="team_radio", horizontal=True)
     
     if st.button("Go!") and team and game_id:
         st.session_state.team = team.lower()
         st.session_state.game_id = game_id
         st.session_state.getting_location = True  # Request location immediately
         
-        try:
-            # Add timeout and retry parameters
-            client = pymongo.MongoClient(
-                st.secrets["mongo_url"],
-                serverSelectionTimeoutMS = 15000,  # 15 second timeout
-                connectTimeoutMS = 15000,
-                socketTimeoutMS = 15000
-            )
+        # Test connection with better error handling
+        with st.spinner("Connecting to database..."):
+            client, error = test_mongo_connection()
             
-            # Test the connection
-            client.admin.command('ping')
+        if client is None:
+            st.error(f"Database connection failed: {error}")
+            st.info("**Troubleshooting steps:**")
+            st.info("1. **Check MongoDB Atlas IP whitelist** - Go to Network Access → Add IP Address → Allow Access from Anywhere (0.0.0.0/0)")
+            st.info("2. **Check your internet connection**")
+            st.info("3. **Try refreshing the page**")
+            st.info("4. **Try a different network (mobile hotspot)**")
+            st.info("5. **Contact support if the issue persists**")
             
-            db = client["ottawa-game"]
-            collection = db[game_id]
-            
-            # Check if this is a new game and initialize team data
-            if game_id not in db.list_collection_names():
-                teams = ["orange", "pink"]
-                team_documents = []
+            if st.button("🔄 Retry Connection"):
+                st.rerun()
+        else:
+            try:
+                db = client["ottawa-game"]
+                collection = db[game_id]
                 
-                for team_name in teams:
-                    team_data = {"_id": team_name, "balance": 0}
-                    # Add zones 1-9
-                    for zone_num in range(1, 10):
-                        team_data[f"zone_{zone_num}"] = 0
-                    # Add completed challenges list
-                    team_data["completed_challenges"] = []
-                    # Add card-related fields
-                    team_data["hand"] = []
-                    team_data["drawn_cards"] = []
-                    team_data["active_curses"] = []
-                    team_data["gold_rush_active"] = False
-                    team_documents.append(team_data)
+                # Check if this is a new game and initialize team data
+                if game_id not in db.list_collection_names():
+                    teams = ["orange", "pink"]
+                    team_documents = []
+                    
+                    for team_name in teams:
+                        team_data = {"_id": team_name, "balance": 0}
+                        # Add zones 1-9
+                        for zone_num in range(1, 10):
+                            team_data[f"zone_{zone_num}"] = 0
+                        # Add completed challenges list
+                        team_data["completed_challenges"] = []
+                        # Add card-related fields
+                        team_data["hand"] = []
+                        team_data["drawn_cards"] = []
+                        team_data["active_curses"] = []
+                        team_data["gold_rush_active"] = False
+                        team_documents.append(team_data)
+                    
+                    # Insert all team documents
+                    collection.insert_many(team_documents)
                 
-                # Insert all team documents
-                collection.insert_many(team_documents)
-            
-            st.session_state.zoom = 14
-            # Don't set fake coordinates - let location detection handle it
-            st.rerun()
-            
-        except Exception as e:
-            st.error(f"Database connection failed: {e}")
-            st.info("Please check your internet connection and try again.")
+                st.session_state.zoom = 14
+                st.success("✅ Connected successfully!")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"Database initialization failed: {e}")
 
 else:
-    client = pymongo.MongoClient(st.secrets["mongo_url"])
-    db = client["ottawa-game"]
-    collection = db[st.session_state.game_id]
-
-    # Fetch team data
+    # For the main game logic, also use better error handling
     try:
-        orange_data = collection.find_one({"_id": "orange"})
-        pink_data = collection.find_one({"_id": "pink"})
+        client, error = test_mongo_connection()
+        if client is None:
+            st.error(f"🚨 Database connection lost: {error}")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Retry Connection"):
+                    st.rerun()
+            with col2:
+                if st.button("🏠 Back to Start"):
+                    for key in list(st.session_state.keys()):
+                        del st.session_state[key]
+                    st.rerun()
+            st.stop()
+            
+        db = client["ottawa-game"]
+        collection = db[st.session_state.game_id]
+
+        # Fetch team data
+        try:
+            orange_data = collection.find_one({"_id": "orange"})
+            pink_data = collection.find_one({"_id": "pink"})
+        except Exception as e:
+            st.error(f"Error fetching team data: {e}")
+            orange_data = None
+            pink_data = None
+
     except Exception as e:
-        st.error(f"Error fetching team data: {e}")
-        orange_data = None
-        pink_data = None
+        st.error(f"Critical database error: {e}")
+        if st.button("🔄 Reset and Try Again"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+        st.stop()
 
     # Get current team data
     current_team_data = orange_data if st.session_state.team == "orange" else pink_data
@@ -486,19 +739,19 @@ else:
             pass
 
     m = folium.Map(
-        min_zoom = 5,
-        location = [centre["lat"], centre["lon"]],  # Always center on Ottawa initially
-        zoom_start = 14,
+        min_zoom=5,
+        location=[centre["lat"], centre["lon"]],  # Always center on Ottawa initially
+        zoom_start=14,
     )
 
     # Only show location marker if we have real coordinates
     if st.session_state.lat is not None and st.session_state.lon is not None:
         folium.Marker(
-            location = [st.session_state.lat, st.session_state.lon],
-            icon = folium.DivIcon(
-                html = f'<i class="fa fa-location-crosshairs" style="color: #0050ff; font-size: 20px;"></i>',
-                icon_size = (25, 25),
-                icon_anchor = (12.5, 12.5)
+            location=[st.session_state.lat, st.session_state.lon],
+            icon=folium.DivIcon(
+                html=f'<i class="fa fa-location-crosshairs" style="color: #0050ff; font-size: 20px;"></i>',
+                icon_size=(25, 25),
+                icon_anchor=(12.5, 12.5)
             )
         ).add_to(m)
 
@@ -537,12 +790,12 @@ else:
         border_weight = 5 if is_nearest else 3
         
         folium.Polygon(
-            locations = coords,
-            color = zone_color,
-            fill = True,
-            fill_opacity = fill_opacity,
-            weight = border_weight,
-            popup = folium.Popup(popup_html, max_width = 200)
+            locations=coords,
+            color=zone_color,
+            fill=True,
+            fill_opacity=fill_opacity,
+            weight=border_weight,
+            popup=folium.Popup(popup_html, max_width=200)
         ).add_to(m)
 
     # Get completed challenges for current team
@@ -552,32 +805,32 @@ else:
     for i, challenge in enumerate(challenges):
         if challenge["title"] not in completed_challenges:
             folium.Marker(
-                location = [challenge["lat"], challenge["lon"]],
-                icon = folium.DivIcon(
-                    html = f'<i class="fa-solid fa-trophy" style="color: #{"FFD700" if challenge["points"] >= 300 else "C0C0C0" if challenge["points"] >= 200 else "CD7F32"}; font-size: 25px;"></i>',
-                    icon_size = (24, 16),
-                    icon_anchor = (12, 8)
+                location=[challenge["lat"], challenge["lon"]],
+                icon=folium.DivIcon(
+                    html=f'<i class="fa-solid fa-trophy" style="color: #{"FFD700" if challenge["points"] >= 300 else "C0C0C0" if challenge["points"] >= 200 else "CD7F32"}; font-size: 25px;"></i>',
+                    icon_size=(24, 16),
+                    icon_anchor=(12, 8)
                 ),
-                popup = folium.Popup(
+                popup=folium.Popup(
                     f"""<b style="text-align: center;"><h3>{challenge['location']}</h3>{challenge['title']}</b><br><i>Points: {challenge['points']}</i><br>{challenge['challenge']}<br><a href='{challenge['link']}' target='_blank'>View on Google Maps</a>""",
-                    max_width = 300,
+                    max_width=300,
                 ),
             ).add_to(m)
         
     folium.TileLayer(
-            tiles = 'https://api.maptiler.com/maps/voyager/{z}/{x}/{y}.png?key=' + st.secrets["map_tiler"],
-            attr = '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a>',
-            api_key = st.secrets["map_tiler"],
-            min_zoom = 13,
-            max_zoom = 21,
+            tiles='https://api.maptiler.com/maps/voyager/{z}/{x}/{y}.png?key=' + st.secrets["map_tiler"],
+            attr='<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a>',
+            api_key=st.secrets["map_tiler"],
+            min_zoom=13,
+            max_zoom=21,
         ).add_to(m)
 
     map_container = st.container()
     with map_container:
         output = st_folium(
             m,
-            height = 400,
-            width = None,
+            height=400,
+            width=None,
         )
 
     # Check if a challenge marker was clicked
@@ -638,7 +891,7 @@ else:
                 col1, col2 = st.columns(2)
                 with col1:
                     max_deposit = current_team_data.get('balance', 0)
-                    deposit_amount = st.number_input("How many points do you want to deposit:", min_value = 0, max_value = max_deposit, value = 0)
+                    deposit_amount = st.number_input("How many points do you want to deposit:", min_value=0, max_value=max_deposit, value=0)
                 with col2:
                     if st.button(f"Deposit to Zone {nearest_zone}"):
                         if deposit_amount > 0:
@@ -725,7 +978,7 @@ else:
                         st.session_state.confirming_challenge = True
                         st.rerun()
                 else:
-                    st.button("🏆 Click a challenge 🏆", disabled = True)
+                    st.button("🏆 Click a challenge 🏆", disabled=True)
             
             with col3:
                 # Check if gold rush is active (disables card drawing)
