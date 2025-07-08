@@ -296,6 +296,7 @@ if st.session_state.team == None or st.session_state.game_id == None:
     if st.button("Go!") and team and game_id:
         st.session_state.team = team.lower()
         st.session_state.game_id = game_id
+        st.session_state.getting_location = True  # Request location immediately
         
         try:
             # Add timeout and retry parameters
@@ -335,7 +336,7 @@ if st.session_state.team == None or st.session_state.game_id == None:
                 collection.insert_many(team_documents)
             
             st.session_state.zoom = 14
-
+            # Don't set fake coordinates - let location detection handle it
             st.rerun()
             
         except Exception as e:
@@ -466,23 +467,40 @@ else:
     if "zoom" not in st.session_state:
         st.session_state.zoom = 14
 
+    # Show location loading message if getting location
+    if st.session_state.get("getting_location", False) and (st.session_state.lat is None or st.session_state.lon is None):
+        st.info("🌍 Getting your location... Please allow location access when prompted.")
+        st.info("If location access is denied, you can still play but will need to manually update your location using the ✛ button.")
+        
+        # Try to get location immediately
+        try:
+            loc = get_geolocation()
+            if loc and "coords" in loc:
+                st.session_state.lat = loc["coords"]["latitude"]
+                st.session_state.lon = loc["coords"]["longitude"]
+                st.session_state.getting_location = False
+                st.success("📍 Location obtained!")
+                st.rerun()
+        except (TypeError, KeyError):
+            # Location not available yet, keep trying
+            pass
+
     m = folium.Map(
         min_zoom = 5,
-        location = [centre["lat"], centre["lon"]],  # Ottawa's approximate center
+        location = [centre["lat"], centre["lon"]],  # Always center on Ottawa initially
         zoom_start = 14,
     )
 
-    if st.session_state.lat != None and st.session_state.lon != None:
+    # Only show location marker if we have real coordinates
+    if st.session_state.lat is not None and st.session_state.lon is not None:
         folium.Marker(
-            location = [st.session_state.lat, st.session_state.lon] if st.session_state.lat and st.session_state.lon else [centre["lat"], centre["lon"]],
+            location = [st.session_state.lat, st.session_state.lon],
             icon = folium.DivIcon(
                 html = f'<i class="fa fa-location-crosshairs" style="color: #0050ff; font-size: 20px;"></i>',
                 icon_size = (25, 25),
                 icon_anchor = (12.5, 12.5)
             )
         ).add_to(m)
-    else:
-        st.session_state.getting_location = True
 
     # Function to determine zone color based on team points
     def get_zone_color(zone_number, orange_data, pink_data):
@@ -630,7 +648,10 @@ else:
                         else:
                             st.warning("Please enter a deposit amount greater than 0.")
             else:
-                st.warning("Please enable location services to deposit points.")
+                if st.session_state.lat is None or st.session_state.lon is None:
+                    st.warning("🌍 Waiting for location... Click the ✛ button to manually update your location.")
+                else:
+                    st.warning("Please enable location services to deposit points.")
 
     # Check if we're in confirmation mode for challenge
     if st.session_state.confirming_challenge and st.session_state.last_clicked_challenge is not None:
@@ -767,7 +788,7 @@ else:
             st.markdown(f"**{card['title']}**")
             st.write(card["description"])
             if card.get("link"):
-                st.write(f"[Necessary Link]({card['link']})")
+                st.write(f"[Helpful Link]({card['link']})")
             
             # Don't show use button for advantage cards (auto-activated)
             if card["type"] != "advantage":
@@ -791,7 +812,7 @@ else:
         if "risky" in card["type"]:
             st.write("**How much do you want to wager?**")
             max_wager = current_team_data.get('balance', 0)
-            wager = st.number_input("Wager amount:", min_value = 0, max_value = max_wager, value = min(100, max_wager), key = "wager_input")
+            wager = st.number_input("Wager amount:", min_value=1, max_value=max_wager, value=min(100, max_wager), key="wager_input")
             
             col_cancel, col_confirm = st.columns(2)
             with col_cancel:
@@ -868,7 +889,7 @@ else:
         
         if card["title"] == "Curse of the Luxury Car":
             st.write("Enter the minimum MSRP of your car:")
-            car_price = st.number_input("Car MSRP ($):", min_value = 0, step = 100, key = "car_price_input")
+            car_price = st.number_input("Car MSRP ($):", min_value=0, step=1000, key="car_price_input")
             
             col_cancel, col_submit = st.columns(2)
             with col_cancel:
@@ -898,7 +919,7 @@ else:
                     
         elif card["title"] == "Curse of the Cairn":
             st.write("How many rocks did you stack?")
-            rock_count = st.number_input("Number of rocks:", min_value = 1, max_value = 50, step = 1, key = "rock_count_input")
+            rock_count = st.number_input("Number of rocks:", min_value=1, max_value=50, step=1, key="rock_count_input")
             
             col_cancel, col_submit = st.columns(2)
             with col_cancel:
@@ -927,7 +948,7 @@ else:
                     
         elif card["title"] == "Curse of the Bird Guide":
             st.write("How many seconds did you film the bird?")
-            film_time = st.number_input("Seconds filmed:", min_value = 1, max_value = 420, step = 1, key = "film_time_input")
+            film_time = st.number_input("Seconds filmed:", min_value=1, max_value=420, step=1, key="film_time_input")
             
             col_cancel, col_submit = st.columns(2)
             with col_cancel:
@@ -966,7 +987,7 @@ else:
         
         if card["type"] == "risky_trivia":
             # Geography question - number input
-            answer = st.number_input("Your answer:", min_value = 0, step = 1, key = "trivia_answer")
+            answer = st.number_input("Your answer:", min_value=0, step=1, key="trivia_answer")
             if st.button("Submit Answer"):
                 correct_answer = card["answer"]
                 tolerance = card["tolerance"]
